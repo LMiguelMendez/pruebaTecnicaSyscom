@@ -24,6 +24,10 @@ class Usuario
     {
         $pdo = connection();
 
+        if (self::emailExists($correo_electronico)) {
+            throw new Exception("El correo electrónico ya está registrado");
+        }
+
         $sql = "INSERT INTO usuarios (nombre, correo_electronico, id_rol, fecha_ingreso, firma) VALUES (:nombre, :correo_electronico, :id_rol, :fecha_ingreso, :firma)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
@@ -45,6 +49,69 @@ class Usuario
         return $id;
     }
 
+    public static function update($id, $nombre, $correo_electronico, $id_rol, $fecha_ingreso, $firma)
+    {
+        $pdo = connection();
+
+        if (self::emailExists($correo_electronico, $id)) {
+            throw new Exception("El correo electrónico ya está registrado por otro usuario");
+        }
+
+        $sql = "UPDATE usuarios 
+            SET nombre = :nombre, 
+                correo_electronico = :correo_electronico, 
+                id_rol = :id_rol, 
+                fecha_ingreso = :fecha_ingreso, 
+                firma = :firma 
+            WHERE id = :id";
+
+        $stmt = $pdo->prepare($sql);
+        $result = $stmt->execute([
+            ':nombre' => $nombre,
+            ':correo_electronico' => $correo_electronico,
+            ':id_rol' => $id_rol,
+            ':fecha_ingreso' => $fecha_ingreso,
+            ':firma' => $firma,
+            ':id' => $id
+        ]);
+
+        if ($result) {
+            $usuario = self::getById($id);
+            $rutaContrato = self::generarContratoPDF(
+                $usuario['id'],
+                $usuario['nombre'],
+                $usuario['correo_electronico'],
+                $usuario['id_rol'],
+                $usuario['fecha_ingreso'],
+                $usuario['firma']
+            );
+
+            $sql = "UPDATE usuarios SET contrato = :contrato WHERE id = :id";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([':contrato' => $rutaContrato, ':id' => $id]);
+        }
+
+        return $result;
+    }
+
+    public static function emailExists($correo, $excludeId = null)
+    {
+        $pdo = connection();
+        $sql = "SELECT COUNT(*) as count FROM usuarios WHERE correo_electronico = :correo";
+        $params = [':correo' => $correo];
+
+        if ($excludeId !== null) {
+            $sql .= " AND id != :exclude_id";
+            $params[':exclude_id'] = $excludeId;
+        }
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $result['count'] > 0;
+    }
+
     public static function generarContratoPDF($id, $nombre, $email, $id_rol, $fecha_ingreso, $firma)
     {
         $options = new Options();
@@ -53,7 +120,7 @@ class Usuario
 
         $dompdf = new Dompdf($options);
 
-        $cargo = ($id_rol == 1) ? 'Empleado' : 'Jefe';
+        $cargo = ($id_rol == 1) ? 'Desarrollador' : 'Lider de Area';
 
         $html = "
     <!DOCTYPE html>
@@ -138,51 +205,12 @@ class Usuario
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public static function update($id, $nombre, $correo_electronico, $id_rol, $fecha_ingreso, $firma)
-    {
-        $pdo = connection();
-
-        $sql = "UPDATE usuarios 
-            SET nombre = :nombre, 
-                correo_electronico = :correo_electronico, 
-                id_rol = :id_rol, 
-                fecha_ingreso = :fecha_ingreso, 
-                firma = :firma 
-            WHERE id = :id";
-
-        $stmt = $pdo->prepare($sql);
-        $result = $stmt->execute([
-            ':nombre' => $nombre,
-            ':correo_electronico' => $correo_electronico,
-            ':id_rol' => $id_rol,
-            ':fecha_ingreso' => $fecha_ingreso,
-            ':firma' => $firma,
-            ':id' => $id
-        ]);
-
-        if ($result) {
-            $usuario = self::getById($id);
-            $rutaContrato = self::generarContratoPDF(
-                $usuario['id'],
-                $usuario['nombre'],
-                $usuario['correo_electronico'],
-                $usuario['id_rol'],
-                $usuario['fecha_ingreso'],
-                $usuario['firma']
-            );
-
-            $sql = "UPDATE usuarios SET contrato = :contrato WHERE id = :id";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute([':contrato' => $rutaContrato, ':id' => $id]);
-        }
-
-        return $result;
-    }
 
     public static function delete($id)
     {
         $pdo = connection();
-        $sql = "UPDATE usuarios SET fecha_eliminacion = CURRENT_DATE WHERE id = :id";
+
+        $sql = "DELETE FROM usuarios WHERE id = :id";
         $stmt = $pdo->prepare($sql);
         return $stmt->execute([':id' => $id]);
     }
